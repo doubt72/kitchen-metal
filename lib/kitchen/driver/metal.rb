@@ -24,13 +24,12 @@ require 'chef/runner'
 
 require 'chef/providers'
 require 'chef/resources'
-require 'chef_metal/vagrant'
 require 'chef/formatters/doc'
 
 module Kitchen
   module Driver
 
-    # Vagrant Metal driver for Kitchen. It communicates to Vagrant using Chef Metal.
+    # Metal driver for Kitchen. Using Metal recipes for great justice.
     #
     # @author Douglas Triggs <doug@getchef.com>
     #
@@ -38,7 +37,7 @@ module Kitchen
     # vagrant driver written by Fletcher Nichol and modified for our nefarious
     # purposes.
 
-    class VagrantMetal < Kitchen::Driver::SSHBase
+    class Metal < Kitchen::Driver::SSHBase
 
 # Might want this?
 #      default_config :customize, { :memory => '256' }

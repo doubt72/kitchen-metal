@@ -20,7 +20,7 @@ module Kitchen
 
   module Driver
 
-    # Version string for Vagrant Kitchen driver
-    VAGRANT_METAL_VERSION = "0.1.0.dev"
+    # Version string for Metal Kitchen driver
+    METAL_VERSION = "0.1.0.dev"
   end
 end
