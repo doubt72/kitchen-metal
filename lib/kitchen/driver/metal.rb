@@ -38,28 +38,48 @@ module Kitchen
     # vagrant driver written by Fletcher Nichol and modified for our nefarious
     # purposes.
 
-    class Metal < Kitchen::Driver::SSHBase
+    class Metal < Kitchen::Driver::Base
+      default_config :transport, :ssh
 
       def create(state)
+        puts "---0: #{instance.platform.name}"
+        puts "---1: #{state}"
+        puts "---2: #{config}"
         run_pre_create_command
         run_recipe
-        set_ssh_state(state)
         info("Vagrant instance #{instance.to_str} created.")
       end
 
       def converge(state)
         run_recipe
-        super
+#        provisioner = instance.provisioner
+#        provisioner.create_sandbox
+#        sandbox_dirs = Dir.glob("#{provisioner.sandbox_path}/*")
+
+#        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
+#          run_remote(provisioner.install_command, conn)
+#          run_remote(provisioner.init_command, conn)
+#          transfer_path(sandbox_dirs, provisioner[:root_path], conn)
+#          run_remote(provisioner.prepare_command, conn)
+#          run_remote(provisioner.run_command, conn)
+#        end
+#      ensure
+#        provisioner && provisioner.cleanup_sandbox
       end
 
       def setup(state)
         run_recipe
-        super
+#        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
+#          run_remote(busser_setup_cmd, conn)
+#        end
       end
 
       def verify(state)
         run_recipe
-        super
+#        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
+#          run_remote(busser_sync_cmd, conn)
+#          run_remote(busser_run_cmd, conn)
+#        end
       end
 
       def destroy(state)
@@ -67,10 +87,20 @@ module Kitchen
         info("Vagrant instance #{instance.to_str} destroyed.")
       end
 
+#      def login_command(state)
+#        SSH.new(*build_ssh_args(state)).login_command
+#      end
+
+#      def ssh(ssh_args, command)
+#        Kitchen::SSH.new(*ssh_args) do |conn|
+#          run_remote(command, conn)
+#        end
+#      end
+
       protected
 
       def get_recipe
-        "nope"
+        # GO GET RECIPES
       end
 
       def run_recipe
@@ -87,7 +117,7 @@ module Kitchen
           'kitchen_vagrant_metal', run_context)
 
         recipe_exec.instance_eval do
-          # STUFF HERE?
+          # RUN OUR RECIPES HERE
         end
         Chef::Runner.new(run_context).converge
         @environment_created = true
@@ -95,7 +125,54 @@ module Kitchen
 
       def run_destroy()
         @environment_created = false
+        # Get machines AND DESTROY THEM
       end
+
+#      def build_ssh_args(state)
+#        combined = config.to_hash.merge(state)
+
+#        opts = Hash.new
+#        opts[:user_known_hosts_file] = "/dev/null"
+#        opts[:paranoid] = false
+#        opts[:keys_only] = true if combined[:ssh_key]
+#        opts[:password] = combined[:password] if combined[:password]
+#        opts[:forward_agent] = combined[:forward_agent] if combined.key? :forward_agent
+#        opts[:port] = combined[:port] if combined[:port]
+#        opts[:keys] = Array(combined[:ssh_key]) if combined[:ssh_key]
+#        opts[:logger] = logger
+
+#        [combined[:hostname], combined[:username], opts]
+#      end
+
+#      def env_cmd(cmd)
+#        env = "env"
+#        env << " http_proxy=#{config[:http_proxy]}"   if config[:http_proxy]
+#        env << " https_proxy=#{config[:https_proxy]}" if config[:https_proxy]
+
+#        env == "env" ? cmd : "#{env} #{cmd}"
+#      end
+
+#      def run_remote(command, connection)
+#        return if command.nil?
+
+#        connection.exec(env_cmd(command))
+#      rescue SSHFailed, Net::SSH::Exception => ex
+#        raise ActionFailed, ex.message
+#      end
+
+#      def transfer_path(locals, remote, connection)
+#        return if locals.nil? || Array(locals).empty?
+
+#        info("Transferring files to #{instance.to_str}")
+#        locals.each { |local| connection.upload_path!(local, remote) }
+#        debug("Transfer complete")
+#      rescue SSHFailed, Net::SSH::Exception => ex
+#        raise ActionFailed, ex.message
+#      end
+
+#      def wait_for_sshd(hostname, username = nil, options = {})
+#        SSH.new(hostname, username, { :logger => logger }.merge(options)).wait
+#      end
 
       def run(cmd, options = {})
         cmd = "echo #{cmd}" if config[:dry_run]
@@ -106,15 +183,6 @@ module Kitchen
         if config[:pre_create_command]
           run(config[:pre_create_command], :cwd => config[:kitchen_root])
         end
-      end
-
-      def set_ssh_state(state)
-#        hash = vagrant_ssh_config
-
-#        state[:hostname] = hash["HostName"]
-#        state[:username] = hash["User"]
-#        state[:ssh_key] = hash["IdentityFile"]
-#        state[:port] = hash["Port"]
       end
     end
   end
