@@ -99,13 +99,27 @@ module Kitchen
 
       protected
 
-      def get_recipe
-        # GO GET RECIPES
+      def get_driver_recipe
+        return nil if config[:layout].nil?
+        path = "#{config[:kitchen_root]}/#{config[:layout]}"
+        puts "---7: #{path}"
+        file = File.open(path, "rb")
+        contents = file.read
+        file.close
+        contents
+      end
+
+      def get_platform_recipe
+        path = "#{config[:kitchen_root]}/#{instance.platform.name}"
+        puts "---8: #{path}"
+        file = File.open(path, "rb")
+        contents = file.read
+        file.close
+        contents
       end
 
       def run_recipe
         return if @environment_created
-        recipe = get_recipe
         node = Chef::Node.new
         node.name 'test'
         node.automatic[:platform] = 'kitchen_metal'
@@ -115,10 +129,10 @@ module Kitchen
           Chef::EventDispatch::Dispatcher.new(Chef::Formatters::Doc.new(STDOUT,STDERR)))
         recipe_exec = Chef::Recipe.new('kitchen_vagrant_metal',
           'kitchen_vagrant_metal', run_context)
-
-        recipe_exec.instance_eval do
-          # RUN OUR RECIPES HERE
-        end
+        # We require a platform, but layout in driver is optional
+        recipe = get_driver_recipe
+        recipe_exec.instance_eval recipe if recipe
+        recipe_exec.instance_eval get_platform_recipe
         Chef::Runner.new(run_context).converge
         @environment_created = true
       end
