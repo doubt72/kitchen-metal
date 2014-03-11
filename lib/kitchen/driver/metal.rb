@@ -42,16 +42,13 @@ module Kitchen
       default_config :transport, :ssh
 
       def create(state)
-        puts "---0: #{instance.platform.name}"
-        puts "---1: #{state}"
-        puts "---2: #{config}"
         run_pre_create_command
-        run_recipe
+        run_recipe(state)
         info("Vagrant instance #{instance.to_str} created.")
       end
 
       def converge(state)
-        run_recipe
+        run_recipe(state)
 #        provisioner = instance.provisioner
 #        provisioner.create_sandbox
 #        sandbox_dirs = Dir.glob("#{provisioner.sandbox_path}/*")
@@ -68,14 +65,14 @@ module Kitchen
       end
 
       def setup(state)
-        run_recipe
+        run_recipe(state)
 #        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
 #          run_remote(busser_setup_cmd, conn)
 #        end
       end
 
       def verify(state)
-        run_recipe
+        run_recipe(state)
 #        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
 #          run_remote(busser_sync_cmd, conn)
 #          run_remote(busser_run_cmd, conn)
@@ -83,7 +80,7 @@ module Kitchen
       end
 
       def destroy(state)
-        run_destroy
+        run_destroy(state)
         info("Vagrant instance #{instance.to_str} destroyed.")
       end
 
@@ -102,7 +99,6 @@ module Kitchen
       def get_driver_recipe
         return nil if config[:layout].nil?
         path = "#{config[:kitchen_root]}/#{config[:layout]}"
-        puts "---7: #{path}"
         file = File.open(path, "rb")
         contents = file.read
         file.close
@@ -111,17 +107,16 @@ module Kitchen
 
       def get_platform_recipe
         path = "#{config[:kitchen_root]}/#{instance.platform.name}"
-        puts "---8: #{path}"
         file = File.open(path, "rb")
         contents = file.read
         file.close
         contents
       end
 
-      def run_recipe
+      def run_recipe(state)
         return if @environment_created
         node = Chef::Node.new
-        node.name 'test'
+        node.name 'nothing'
         node.automatic[:platform] = 'kitchen_metal'
         node.automatic[:platform_version] = 'kitchen_metal'
         Chef::Config.local_mode = true
@@ -134,12 +129,70 @@ module Kitchen
         recipe_exec.instance_eval recipe if recipe
         recipe_exec.instance_eval get_platform_recipe
         Chef::Runner.new(run_context).converge
+        machines = []
+        run_context.resource_collection.each do |resource|
+          if (resource.is_a?(Chef::Resource::Machine))
+            if (!machines.include?(resource.name))
+              machines.push(resource.name)
+            end
+          end
+        end
+        state[:machines] = machines
         @environment_created = true
       end
 
-      def run_destroy()
+      # TODO: kill with fire
+      class DummyProvider
+        def converge_by(description, &block)
+          puts description
+          block.call
+        end
+
+        def run_context
+          node = Chef::Node.new
+          node.name 'nothing'
+          node.automatic[:platform] = 'kitchen_metal'
+          node.automatic[:platform_version] = 'kitchen_metal'
+          Chef::Config.local_mode = true
+          run_context = Chef::RunContext.new(node, {},
+            Chef::EventDispatch::Dispatcher.new(Chef::Formatters::Doc.new(STDOUT,STDERR)))
+        end
+
+        def cookbook_name
+          "test_kitchen"
+        end
+
+        def new_resource
+          # This is an abomination and will be made to go away but solves the thing now
+          DummyProvider.new
+        end
+
+        def updated_by_last_action(foo)
+          true
+        end
+      end
+
+      def run_destroy(state)
+        return if !@environment_created || !state[:machines] || state[:machines].size == 0
+        machines = state[:machines]
+        chef_server = Cheffish::CheffishServerAPI.new(Cheffish.enclosing_chef_server)
+        nodes = chef_server.get("/nodes")
+        nodes.each_key do |key|
+          if (machines.include?(key))
+            node_url = nodes[key]
+            node = chef_server.get(node_url)
+            node_url = node['normal']['provisioner_output']['provisioner_url']
+            cluster_type = node_url.gsub(/\:\/\/.*$/,"")
+            cluster_path = node_url.gsub(/^.*\:\/\//,"")
+            # TODO: Temporary hard-coded provisioner for the moment; in the future,
+            # need to add registry in metal
+            # TODO: Can we get around special cases for new params?
+            provisioner = ChefMetal::Provisioner::VagrantProvisioner.new(cluster_path)
+            provisioner.delete_machine(DummyProvider.new, node)
+          end
+        end
+        state[:machines] = []
         @environment_created = false
-        # Get machines AND DESTROY THEM
       end
 
 #      def build_ssh_args(state)
