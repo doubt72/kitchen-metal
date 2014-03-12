@@ -141,37 +141,6 @@ module Kitchen
         @environment_created = true
       end
 
-      # TODO: kill with fire
-      class DummyProvider
-        def converge_by(description, &block)
-          puts description
-          block.call
-        end
-
-        def run_context
-          node = Chef::Node.new
-          node.name 'nothing'
-          node.automatic[:platform] = 'kitchen_metal'
-          node.automatic[:platform_version] = 'kitchen_metal'
-          Chef::Config.local_mode = true
-          run_context = Chef::RunContext.new(node, {},
-            Chef::EventDispatch::Dispatcher.new(Chef::Formatters::Doc.new(STDOUT,STDERR)))
-        end
-
-        def cookbook_name
-          "test_kitchen"
-        end
-
-        def new_resource
-          # This is an abomination and will be made to go away but solves the thing now
-          DummyProvider.new
-        end
-
-        def updated_by_last_action(foo)
-          true
-        end
-      end
-
       def run_destroy(state)
         return if !@environment_created || !state[:machines] || state[:machines].size == 0
         machines = state[:machines]
@@ -188,7 +157,7 @@ module Kitchen
             # need to add registry in metal
             # TODO: Can we get around special cases for new params?
             provisioner = ChefMetal::Provisioner::VagrantProvisioner.new(cluster_path)
-            provisioner.delete_machine(DummyProvider.new, node)
+            provisioner.delete_machine(KitchenActionHandler.new("test_kitchen"), node)
           end
         end
         state[:machines] = []
