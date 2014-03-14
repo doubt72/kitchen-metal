@@ -152,11 +152,9 @@ module Kitchen
             node = chef_server.get(node_url)
             node_url = node['normal']['provisioner_output']['provisioner_url']
             cluster_type = node_url.gsub(/\:\/\/.*$/,"")
-            cluster_path = node_url.gsub(/^.*\:\/\//,"")
-            # TODO: Temporary hard-coded provisioner for the moment; in the future,
-            # need to add registry in metal
-            # TODO: Can we get around special cases for new params?
-            provisioner = ChefMetal::Provisioner::VagrantProvisioner.new(cluster_path)
+            require "chef_metal/provisioner_init/#{cluster_type}_init"
+            provisioner_class = ChefMetal.registered_provisioners(cluster_type)
+            provisioner = provisioner_class.inflate(node)
             provisioner.delete_machine(KitchenActionHandler.new("test_kitchen"), node)
           end
         end
