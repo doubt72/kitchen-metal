@@ -150,11 +150,7 @@ module Kitchen
           if (machines.include?(key))
             node_url = nodes[key]
             node = chef_server.get(node_url)
-            node_url = node['normal']['provisioner_output']['provisioner_url']
-            cluster_type = node_url.gsub(/\:\/\/.*$/,"")
-            require "chef_metal/provisioner_init/#{cluster_type}_init"
-            provisioner_class = ChefMetal.registered_provisioners(cluster_type)
-            provisioner = provisioner_class.inflate(node)
+            provisioner = ChefMetal.provisioner_for_node(node)
             provisioner.delete_machine(KitchenActionHandler.new("test_kitchen"), node)
           end
         end
