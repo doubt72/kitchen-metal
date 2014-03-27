@@ -27,6 +27,10 @@ require 'chef_metal'
 require 'chef/providers'
 require 'chef/resources'
 
+require 'kitchen/driver/metal_helper'
+require 'rspec'
+require 'rspec/core/formatters/documentation_formatter'
+
 module Kitchen
   module Driver
 
@@ -49,34 +53,22 @@ module Kitchen
 
       def converge(state)
         run_recipe(state)
-#        provisioner = instance.provisioner
-#        provisioner.create_sandbox
-#        sandbox_dirs = Dir.glob("#{provisioner.sandbox_path}/*")
-
-#        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
-#          run_remote(provisioner.install_command, conn)
-#          run_remote(provisioner.init_command, conn)
-#          transfer_path(sandbox_dirs, provisioner[:root_path], conn)
-#          run_remote(provisioner.prepare_command, conn)
-#          run_remote(provisioner.run_command, conn)
-#        end
-#      ensure
-#        provisioner && provisioner.cleanup_sandbox
       end
 
       def setup(state)
         run_recipe(state)
-#        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
-#          run_remote(busser_setup_cmd, conn)
-#        end
+        target = instance.provisioner.config[:node]
+        if (target)
+          # If there's no target, there's no point in running setup, since we don't
+          # have a machine we need to prep for anything; we'll be running tests
+          # external to all our VMs
+          run_setup(state, target)
+        end
       end
 
       def verify(state)
         run_recipe(state)
-#        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
-#          run_remote(busser_sync_cmd, conn)
-#          run_remote(busser_run_cmd, conn)
-#        end
+        run_tests(state, instance.provisioner.config[:node])
       end
 
       def destroy(state)
@@ -96,7 +88,11 @@ module Kitchen
 
       protected
 
+      # This gets the high-level recipe from driver/layout in the .kitchen.yml;
+      # this is more or less intended for setting up the layout/machines,
+      # etc. but you can ultimately use it however you like
       def get_driver_recipe
+        # TODO: we may want to move the path from the top level
         return nil if config[:layout].nil?
         path = "#{config[:kitchen_root]}/#{config[:layout]}"
         file = File.open(path, "rb")
@@ -105,7 +101,11 @@ module Kitchen
         contents
       end
 
+      # This gets the high-level recipe from platform/name in the .kitchen.yml;
+      # this is more or less intended for setting up the platform/environment,
+      # etc. but you can ultimately use it however you like
       def get_platform_recipe
+        # TODO: we may want to move the path from the top level
         path = "#{config[:kitchen_root]}/#{instance.platform.name}"
         file = File.open(path, "rb")
         contents = file.read
@@ -113,8 +113,12 @@ module Kitchen
         contents
       end
 
+      # This is used to converge our metal recipes
       def run_recipe(state)
+        # Don't run this again if we've already converged it
         return if @environment_created
+
+        # Set up our enviroment so we can run this in place
         node = Chef::Node.new
         node.name 'nothing'
         node.automatic[:platform] = 'kitchen_metal'
@@ -124,11 +128,16 @@ module Kitchen
           Chef::EventDispatch::Dispatcher.new(Chef::Formatters::Doc.new(STDOUT,STDERR)))
         recipe_exec = Chef::Recipe.new('kitchen_vagrant_metal',
           'kitchen_vagrant_metal', run_context)
+
         # We require a platform, but layout in driver is optional
+        recipe_exec.instance_eval get_platform_recipe
         recipe = get_driver_recipe
         recipe_exec.instance_eval recipe if recipe
-        recipe_exec.instance_eval get_platform_recipe
         Chef::Runner.new(run_context).converge
+
+        # Grab the machines so we can save them for later (i.e., for login/to destroy
+        # them/etc.)  We have to be careful of duplicate nodes with the same name and
+        # that we're actually getting machine resource names
         machines = []
         run_context.resource_collection.each do |resource|
           if (resource.is_a?(Chef::Resource::Machine))
@@ -141,8 +150,22 @@ module Kitchen
         @environment_created = true
       end
 
-      def run_destroy(state)
-        return if !@environment_created || !state[:machines] || state[:machines].size == 0
+      # This is used to get a node with a specific name
+      def get_node(state, name)
+        machines = state[:machines]
+        if (machines.include?(name))
+          chef_server = Cheffish::CheffishServerAPI.new(Cheffish.enclosing_chef_server)
+          nodes = chef_server.get("/nodes")
+          node_url = nodes[name]
+          chef_server.get(node_url)
+        else
+          nil
+        end
+      end
+
+      # This is used to get all our machine nodes
+      def get_all_nodes(state)
+        rc = []
         machines = state[:machines]
         chef_server = Cheffish::CheffishServerAPI.new(Cheffish.enclosing_chef_server)
         nodes = chef_server.get("/nodes")
@@ -150,9 +173,87 @@ module Kitchen
           if (machines.include?(key))
             node_url = nodes[key]
             node = chef_server.get(node_url)
-            provisioner = ChefMetal.provisioner_for_node(node)
-            provisioner.delete_machine(KitchenActionHandler.new("test_kitchen"), node)
+            rc.push(node)
           end
+        end
+        return rc
+      end
+
+      # This is used to prep machines for the verify stage; this is only needed when
+      # we're running tests on a particular machine (i.e., when a node name is
+      # supplied in .kitchen.yml)
+      def run_setup(state, target)
+        machines = state[:machines]
+        raise ClientError, "No machine with name #{target} exists, cannot setup test " +
+          "suite as specified by .kitchen.yml" if !machines.include?(target)
+        node = get_node(state, target)
+        provisioner = ChefMetal.provisioner_for_node(node)
+        # TODO: need to change test_base_path in busser for this to ever work
+        transport = provisioner.transport_for(node)
+        transport.execute(busser_setup_cmd)
+      end
+
+      # This is used to run tests.  If we have a node name supplied in .kitchen.yml,
+      # we run on that machine, otherwise we run an external rspec suite
+      def run_tests(state, target)
+        if (target.nil?)
+          # We don't have a node (i.e., no target) so run the external tests
+
+          # Add machine objects for easy reference in rspec;
+          # These are accessed by MetalHelper.<machine name> and have the following
+          # methods:
+          #   name        : machine/node name
+          #   hostname    : machine hostname
+          #   fqdn        : fully qualified domain name
+          #   ipaddress   : IP address
+          #   ipv6address : IPV6 address
+          nodes = get_all_nodes(state)
+          nodes.each do |node|
+            MetalHelper.add_machine(node)
+          end
+
+          # NOTE: we only support rspec at this time, so will need to use the
+          # standard spec dir for it to find the tests
+          path = "#{config[:test_base_path]}/#{instance.suite.name}/spec"
+          rspec_config = RSpec.configuration
+          rspec_config.color = true
+          formatter = RSpec::Core::Formatters::DocumentationFormatter.new(rspec_config.output)
+          reporter =  RSpec::Core::Reporter.new(formatter)
+          rspec_config.instance_variable_set(:@reporter, reporter)
+          files = []
+          Dir.glob("#{path}/*") do |filename|
+            files.push(filename)
+          end
+
+          # Run the things!  Report the outputs!
+          RSpec::Core::Runner.run(files)
+          puts formatter.output.string
+        else
+          # We do have a node (i.e., a target) so we run on that host
+          machines = state[:machines]
+          raise ClientError, "No machine with name #{target} exists, cannot run test " +
+            "suite as specified by .kitchen.yml" if !machines.include?(target)
+          node = get_node(state, target)
+          provisioner = ChefMetal.provisioner_for_node(node)
+          transport = provisioner.transport_for(node)
+
+          # TODO: need to change test_base_path in busser for this to ever work
+          transport.execute(busser_sync_cmd)
+          transport.execute(busser_run_cmd)
+        end
+      end
+
+      # Destroy all the things!
+      def run_destroy(state)
+        # TODO: fix it so it actually works without this; right now, has pem issues
+        # when not run as full "kitchen test" run
+        return if !@environment_created
+        # TODO: test this out of band, i.e., run setup then run destroy instead of test
+        return if !state[:machines] || state[:machines].size == 0
+        nodes = get_all_nodes(state)
+        nodes.each do |node|
+          provisioner = ChefMetal.provisioner_for_node(node)
+          provisioner.delete_machine(KitchenActionHandler.new("test_kitchen"), node)
         end
         state[:machines] = []
         @environment_created = false
