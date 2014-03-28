@@ -16,24 +16,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-class MetalHelper
-  class Machine
-    def initialize(node)
-      @name = node["name"]
-      @hostname = node["automatic"]["hostname"]
-      @fqdn = node["automatic"]["fqdn"]
-      @ipaddress = node["automatic"]["ipaddress"]
-      @ipv6address = node["automatic"]["ipv6address"]
+module Kitchen
+  class MetalHelper
+    class Machine
+      def initialize(node)
+        @name = node["name"]
+        @hostname = node["automatic"]["hostname"]
+        @fqdn = node["automatic"]["fqdn"]
+        @ipaddress = node["automatic"]["ipaddress"]
+        @ipv6address = node["automatic"]["ipv6address"]
+      end
+
+      attr_accessor :name, :hostname, :fqdn, :ipaddress, :ipv6address
     end
 
-    attr_accessor :name, :hostname, :fqdn, :ipaddress, :ipv6address
-  end
-
-  def self.add_machine(node)
-    eigenclass = class <<self; self end
-    eigenclass.class_eval do
-      define_method(node["name"].to_sym) do
-        MetalHelper::Machine.new(node)
+    def self.add_machine(node)
+      eigenclass = class <<self; self end
+      eigenclass.class_eval do
+        define_method(node["name"].to_sym) do
+          Kitchen::MetalHelper::Machine.new(node)
+        end
       end
     end
   end

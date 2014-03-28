@@ -29,7 +29,7 @@ require 'chef/resources'
 
 require 'kitchen/action_handler'
 
-require 'kitchen/driver/metal_helper'
+require 'kitchen/metal_helper'
 require 'rspec'
 require 'rspec/core/formatters/documentation_formatter'
 
@@ -211,7 +211,7 @@ module Kitchen
           #   ipv6address : IPV6 address
           nodes = get_all_nodes(state)
           nodes.each do |node|
-            MetalHelper.add_machine(node)
+            Kitchen::MetalHelper.add_machine(node)
           end
 
           # NOTE: we only support rspec at this time, so will need to use the
