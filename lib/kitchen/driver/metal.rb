@@ -27,6 +27,8 @@ require 'chef_metal'
 require 'chef/providers'
 require 'chef/resources'
 
+require 'kitchen/action_handler'
+
 require 'kitchen/driver/metal_helper'
 require 'rspec'
 require 'rspec/core/formatters/documentation_formatter'
@@ -253,7 +255,7 @@ module Kitchen
         nodes = get_all_nodes(state)
         nodes.each do |node|
           provisioner = ChefMetal.provisioner_for_node(node)
-          provisioner.delete_machine(KitchenActionHandler.new("test_kitchen"), node)
+          provisioner.delete_machine(Kitchen::ActionHandler.new("test_kitchen"), node)
         end
         state[:machines] = []
         @environment_created = false
