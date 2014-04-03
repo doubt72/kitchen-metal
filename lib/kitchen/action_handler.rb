@@ -34,7 +34,6 @@ module Kitchen
       node.name 'nothing'
       node.automatic[:platform] = 'kitchen_metal'
       node.automatic[:platform_version] = 'kitchen_metal'
-      Chef::Config.local_mode = true
       Chef::RunContext.new(node, {},
         Chef::EventDispatch::Dispatcher.new(Chef::Formatters::Doc.new(STDOUT,STDERR)))
     end
