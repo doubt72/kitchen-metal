@@ -59,18 +59,26 @@ module Kitchen
 
       def setup(state)
         run_recipe(state)
-        target = instance.provisioner.config[:node]
-        if (target)
+        targets = instance.provisioner.config[:nodes]
+        if (targets)
           # If there's no target, there's no point in running setup, since we don't
           # have a machine we need to prep for anything; we'll be running tests
           # external to all our VMs
-          run_setup(state, target)
+          targets.each do |target|
+            run_setup(state, target)
+          end
         end
       end
 
       def verify(state)
         run_recipe(state)
-        run_tests(state, instance.provisioner.config[:node])
+        run_tests(state, nil)
+        targets = instance.provisioner.config[:nodes]
+        if (targets)
+          targets.each do |target|
+            run_tests(state, target)
+          end
+        end
       end
 
       def destroy(state)
@@ -181,18 +189,35 @@ module Kitchen
         return rc
       end
 
+      def execute(transport, command)
+        output = transport.execute(command)
+        info("\n#{output.stdout}")
+#        if (output.exitstatus != 0)
+#          info(output.stderr)
+#        end
+      end
+
       # This is used to prep machines for the verify stage; this is only needed when
       # we're running tests on a particular machine (i.e., when a node name is
       # supplied in .kitchen.yml)
       def run_setup(state, target)
+        # Go get our machine/transport to our machine
         machines = state[:machines]
         raise ClientError, "No machine with name #{target} exists, cannot setup test " +
           "suite as specified by .kitchen.yml" if !machines.include?(target)
         node = get_node(state, target)
         provisioner = ChefMetal.provisioner_for_node(node)
-        # TODO: need to change test_base_path in busser for this to ever work
-        transport = provisioner.transport_for(node)
-        transport.execute(busser_setup_cmd)
+        machine = provisioner.connect_to_machine(node)
+        transport = machine.transport
+
+        # Get the instance busser/setup and run our test setup on our machine
+        busser = instance.busser
+        old_path = busser[:test_base_path]
+        busser[:test_base_path] = "#{busser[:test_base_path]}/#{target}"
+        execute(transport, busser_setup_cmd)
+        # We have to reset this after we modify it for the node; otherwise this is
+        # a persistent change
+        busser[:test_base_path] = old_path
       end
 
       # This is used to run tests.  If we have a node name supplied in .kitchen.yml,
@@ -216,32 +241,40 @@ module Kitchen
 
           # NOTE: we only support rspec at this time, so will need to use the
           # standard spec dir for it to find the tests
-          path = "#{config[:test_base_path]}/#{instance.suite.name}/spec"
-          rspec_config = RSpec.configuration
-          rspec_config.color = true
-          formatter = RSpec::Core::Formatters::DocumentationFormatter.new(rspec_config.output)
-          reporter =  RSpec::Core::Reporter.new(formatter)
-          rspec_config.instance_variable_set(:@reporter, reporter)
-          files = []
-          Dir.glob("#{path}/*") do |filename|
-            files.push(filename)
-          end
+#          path = "#{config[:test_base_path]}/#{instance.suite.name}/spec"
+#          rspec_config = RSpec.configuration
+#          rspec_config.color = true
+#          formatter = RSpec::Core::Formatters::DocumentationFormatter.new(rspec_config.output)
+#          reporter =  RSpec::Core::Reporter.new(formatter)
+#          rspec_config.instance_variable_set(:@reporter, reporter)
+#          files = []
+#          Dir.glob("#{path}/*") do |filename|
+#            files.push(filename)
+#          end
 
-          # Run the things!  Report the outputs!
-          RSpec::Core::Runner.run(files)
-          puts formatter.output.string
+#          # Run the things!  Report the outputs!
+#          RSpec::Core::Runner.run(files)
+#          puts formatter.output.string
         else
-          # We do have a node (i.e., a target) so we run on that host
+          # We do have a node (i.e., a target) so we run on that host, so let's go
+          # get our machine/transport to our machine
           machines = state[:machines]
           raise ClientError, "No machine with name #{target} exists, cannot run test " +
             "suite as specified by .kitchen.yml" if !machines.include?(target)
           node = get_node(state, target)
           provisioner = ChefMetal.provisioner_for_node(node)
-          transport = provisioner.transport_for(node)
+          machine = provisioner.connect_to_machine(node)
+          transport = machine.transport
 
-          # TODO: need to change test_base_path in busser for this to ever work
-          transport.execute(busser_sync_cmd)
-          transport.execute(busser_run_cmd)
+          # Get the instance busser/setup and run our tests on our machine
+          busser = instance.busser
+          old_path = busser[:test_base_path]
+          busser[:test_base_path] = "#{busser[:test_base_path]}/#{target}"
+          execute(transport, busser_sync_cmd)
+          execute(transport, busser_run_cmd)
+          # We have to reset this after we modify it for the node; otherwise this is
+          # a persistent change
+          busser[:test_base_path] = old_path
         end
       end
 
