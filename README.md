@@ -36,7 +36,8 @@ the layout or topology of the system to be tested).  It could be anything from a
 single machine to an arbitrary set of clusters, i.e., anything metal can support.
 As this might seem to imply, it also doesn't have to be a topology at all, or it
 could include much more than just the topology; again, it can specify anything a
-metal recipe could specify.
+metal recipe could specify (see [Chef Metal](https://github.com/opscode/chef-metal)
+for more information on chef-metal recipes).
 
     driver:
       name: metal
