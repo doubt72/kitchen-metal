@@ -214,7 +214,7 @@ module Kitchen
         busser = instance.busser
         old_path = busser[:test_base_path]
         busser[:test_base_path] = "#{busser[:test_base_path]}/#{target}"
-        execute(transport, busser_setup_cmd)
+        execute(transport, busser.setup_cmd)
         # We have to reset this after we modify it for the node; otherwise this is
         # a persistent change
         busser[:test_base_path] = old_path
@@ -239,22 +239,13 @@ module Kitchen
             Kitchen::MetalHelper.add_machine(node)
           end
 
-          # NOTE: we only support rspec at this time, so will need to use the
-          # standard spec dir for it to find the tests
-#          path = "#{config[:test_base_path]}/#{instance.suite.name}/spec"
-#          rspec_config = RSpec.configuration
-#          rspec_config.color = true
-#          formatter = RSpec::Core::Formatters::DocumentationFormatter.new(rspec_config.output)
-#          reporter =  RSpec::Core::Reporter.new(formatter)
-#          rspec_config.instance_variable_set(:@reporter, reporter)
-#          files = []
-#          Dir.glob("#{path}/*") do |filename|
-#            files.push(filename)
-#          end
-
-#          # Run the things!  Report the outputs!
-#          RSpec::Core::Runner.run(files)
-#          puts formatter.output.string
+          # This only works if you have busser installed and the appropriate
+          # plugins, otherwise this won't do anything.  For the record, I
+          # still haven't gotten busser working locally
+          path = "#{config[:test_base_path]}/#{instance.suite.name}"
+          Dir.chdir(path) do
+            system("busser test")
+          end
         else
           # We do have a node (i.e., a target) so we run on that host, so let's go
           # get our machine/transport to our machine
@@ -270,8 +261,8 @@ module Kitchen
           busser = instance.busser
           old_path = busser[:test_base_path]
           busser[:test_base_path] = "#{busser[:test_base_path]}/#{target}"
-          execute(transport, busser_sync_cmd)
-          execute(transport, busser_run_cmd)
+          execute(transport, busser.sync_cmd)
+          execute(transport, busser.run_cmd)
           # We have to reset this after we modify it for the node; otherwise this is
           # a persistent change
           busser[:test_base_path] = old_path
