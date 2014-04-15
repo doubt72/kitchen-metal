@@ -123,12 +123,12 @@ module Kitchen
         contents
       end
 
-      # This is used to converge our metal recipes
-      def run_recipe(state)
-        # Don't run this again if we've already converged it
-        return if @environment_created
-
-        # Set up our enviroment so we can run this in place
+      # This will evaluate the metal recipes; in the case of setting up the server,
+      # this returns a run_context that can then be converged.  This is also used
+      # for destroy (if the server wasn't previously set up for converging) so that
+      # it can query the server metal sets up to retrieve the information necessary
+      # for destroying an VMs already created.
+      def set_up_server
         node = Chef::Node.new
         node.name 'nothing'
         node.automatic[:platform] = 'kitchen_metal'
@@ -143,6 +143,15 @@ module Kitchen
         recipe_exec.instance_eval get_platform_recipe
         recipe = get_driver_recipe
         recipe_exec.instance_eval recipe if recipe
+        return run_context
+      end
+
+      # This is used to converge our metal recipes
+      def run_recipe(state)
+        # Don't run this again if we've already converged it
+        return if @environment_created
+
+        run_context = set_up_server
         Chef::Runner.new(run_context).converge
 
         # Grab the machines so we can save them for later (i.e., for login/to destroy
@@ -271,11 +280,13 @@ module Kitchen
 
       # Destroy all the things!
       def run_destroy(state)
-        # TODO: fix it so it actually works without this; right now, has pem issues
-        # when not run as full "kitchen test" run
-        return if !@environment_created
         # TODO: test this out of band, i.e., run setup then run destroy instead of test
+
         return if !state[:machines] || state[:machines].size == 0
+        if (!@environment_created)
+          # Run this so that Chef-Zero gets into a state we can get info from it
+          set_up_server
+        end
         nodes = get_all_nodes(state)
         nodes.each do |node|
           provisioner = ChefMetal.provisioner_for_node(node)
