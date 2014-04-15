@@ -293,6 +293,7 @@ module Kitchen
           provisioner.delete_machine(Kitchen::ActionHandler.new("test_kitchen"), node)
         end
         state[:machines] = []
+        Chef::Recipe.stop_local_servers
         @environment_created = false
       end
 
