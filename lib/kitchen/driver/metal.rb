@@ -50,11 +50,13 @@ module Kitchen
       def create(state)
         run_pre_create_command
         run_recipe(state)
+        clear_server
         info("Vagrant instance #{instance.to_str} created.")
       end
 
       def converge(state)
         run_recipe(state)
+        clear_server
       end
 
       def setup(state)
@@ -68,6 +70,7 @@ module Kitchen
             run_setup(state, target)
           end
         end
+        clear_server
       end
 
       def verify(state)
@@ -79,95 +82,16 @@ module Kitchen
             run_tests(state, target)
           end
         end
+        clear_server
       end
 
       def destroy(state)
         run_destroy(state)
+        clear_server
         info("Vagrant instance #{instance.to_str} destroyed.")
       end
 
-#      def login_command(state)
-#        SSH.new(*build_ssh_args(state)).login_command
-#      end
-
-#      def ssh(ssh_args, command)
-#        Kitchen::SSH.new(*ssh_args) do |conn|
-#          run_remote(command, conn)
-#        end
-#      end
-
       protected
-
-      # This gets the high-level recipe from driver/layout in the .kitchen.yml;
-      # this is more or less intended for setting up the layout/machines,
-      # etc. but you can ultimately use it however you like
-      def get_driver_recipe
-        # TODO: we may want to move the path from the top level
-        return nil if config[:layout].nil?
-        path = "#{config[:kitchen_root]}/#{config[:layout]}"
-        file = File.open(path, "rb")
-        contents = file.read
-        file.close
-        contents
-      end
-
-      # This gets the high-level recipe from platform/name in the .kitchen.yml;
-      # this is more or less intended for setting up the platform/environment,
-      # etc. but you can ultimately use it however you like
-      def get_platform_recipe
-        # TODO: we may want to move the path from the top level
-        path = "#{config[:kitchen_root]}/#{instance.platform.name}"
-        file = File.open(path, "rb")
-        contents = file.read
-        file.close
-        contents
-      end
-
-      # This will evaluate the metal recipes; in the case of setting up the server,
-      # this returns a run_context that can then be converged.  This is also used
-      # for destroy (if the server wasn't previously set up for converging) so that
-      # it can query the server metal sets up to retrieve the information necessary
-      # for destroying an VMs already created.
-      def set_up_server
-        node = Chef::Node.new
-        node.name 'nothing'
-        node.automatic[:platform] = 'kitchen_metal'
-        node.automatic[:platform_version] = 'kitchen_metal'
-        Chef::Config.local_mode = true
-        run_context = Chef::RunContext.new(node, {},
-          Chef::EventDispatch::Dispatcher.new(Chef::Formatters::Doc.new(STDOUT,STDERR)))
-        recipe_exec = Chef::Recipe.new('kitchen_vagrant_metal',
-          'kitchen_vagrant_metal', run_context)
-
-        # We require a platform, but layout in driver is optional
-        recipe_exec.instance_eval get_platform_recipe
-        recipe = get_driver_recipe
-        recipe_exec.instance_eval recipe if recipe
-        return run_context
-      end
-
-      # This is used to converge our metal recipes
-      def run_recipe(state)
-        # Don't run this again if we've already converged it
-        return if @environment_created
-
-        run_context = set_up_server
-        Chef::Runner.new(run_context).converge
-
-        # Grab the machines so we can save them for later (i.e., for login/to destroy
-        # them/etc.)  We have to be careful of duplicate nodes with the same name and
-        # that we're actually getting machine resource names
-        machines = []
-        run_context.resource_collection.each do |resource|
-          if (resource.is_a?(Chef::Resource::Machine))
-            if (!machines.include?(resource.name))
-              machines.push(resource.name)
-            end
-          end
-        end
-        state[:machines] = machines
-        @environment_created = true
-      end
 
       # This is used to get a node with a specific name
       def get_node(state, name)
@@ -201,9 +125,11 @@ module Kitchen
       def execute(transport, command)
         output = transport.execute(command)
         info("\n#{output.stdout}")
-#        if (output.exitstatus != 0)
-#          info(output.stderr)
-#        end
+        # Hmm, a lot of noise here about things like unknown terminal type and such.
+        # Not sure what we want to do about this yet.
+        #if (output.exitstatus != 0)
+          #info(output.stderr)
+        #end
       end
 
       # This is used to prep machines for the verify stage; this is only needed when
@@ -278,23 +204,95 @@ module Kitchen
         end
       end
 
+      # This gets the high-level recipe from driver/layout in the .kitchen.yml;
+      # this is more or less intended for setting up the layout/machines,
+      # etc. but you can ultimately use it however you like
+      def get_driver_recipe
+        # TODO: we may want to move the path from the top level
+        return nil if config[:layout].nil?
+        path = "#{config[:kitchen_root]}/#{config[:layout]}"
+        file = File.open(path, "rb")
+        contents = file.read
+        file.close
+        contents
+      end
+
+      # This gets the high-level recipe from platform/name in the .kitchen.yml;
+      # this is more or less intended for setting up the platform/environment,
+      # etc. but you can ultimately use it however you like
+      def get_platform_recipe
+        # TODO: we may want to move the path from the top level
+        path = "#{config[:kitchen_root]}/#{instance.platform.name}"
+        file = File.open(path, "rb")
+        contents = file.read
+        file.close
+        contents
+      end
+
+      # This will evaluate the metal recipes; in the case of setting up the server,
+      # this returns a run_context that can then be converged.  This is also used
+      # for destroy (if the server wasn't previously set up for converging) so that
+      # it can query the server metal sets up to retrieve the information necessary
+      # for destroying an VMs already created.
+      def set_up_server
+        node = Chef::Node.new
+        node.name 'nothing'
+        node.automatic[:platform] = 'kitchen_metal'
+        node.automatic[:platform_version] = 'kitchen_metal'
+        Chef::Config.local_mode = true
+        run_context = Chef::RunContext.new(node, {},
+          Chef::EventDispatch::Dispatcher.new(Chef::Formatters::Doc.new(STDOUT,STDERR)))
+        recipe_exec = Chef::Recipe.new('kitchen_vagrant_metal',
+          'kitchen_vagrant_metal', run_context)
+
+        # We require a platform, but layout in driver is optional
+        recipe_exec.instance_eval get_platform_recipe
+        recipe = get_driver_recipe
+        recipe_exec.instance_eval recipe if recipe
+        return run_context
+      end
+
+      # This is used to set up our server, and converge it if not already converged
+      def run_recipe(state)
+        run_context = set_up_server
+
+        # Don't run this again if we've already converged it
+        return if @environment_created
+
+        Chef::Runner.new(run_context).converge
+
+        # Grab the machines so we can save them for later (i.e., for login/to destroy
+        # them/etc.)  We have to be careful of duplicate nodes with the same name and
+        # that we're actually getting machine resource names
+        machines = []
+        run_context.resource_collection.each do |resource|
+          if (resource.is_a?(Chef::Resource::Machine))
+            if (!machines.include?(resource.name))
+              machines.push(resource.name)
+            end
+          end
+        end
+        state[:machines] = machines
+        @environment_created = true
+      end
+
       # Destroy all the things!
       def run_destroy(state)
         # TODO: test this out of band, i.e., run setup then run destroy instead of test
 
         return if !state[:machines] || state[:machines].size == 0
-        if (!@environment_created)
-          # Run this so that Chef-Zero gets into a state we can get info from it
-          set_up_server
-        end
+        set_up_server
         nodes = get_all_nodes(state)
         nodes.each do |node|
           provisioner = ChefMetal.provisioner_for_node(node)
           provisioner.delete_machine(Kitchen::ActionHandler.new("test_kitchen"), node)
         end
         state[:machines] = []
-        Chef::Recipe.stop_local_servers
         @environment_created = false
+      end
+
+      def clear_server
+        Chef::Recipe.stop_local_servers
       end
 
 #      def build_ssh_args(state)
