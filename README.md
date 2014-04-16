@@ -22,7 +22,7 @@ here:
 The gem requires the test-kitchen and chef-metal gems to run.  Note, however, that
 you may need forks or branches of those gems to get the driver working properly [as
 of this writing, chef-metal master should be fine, but you'll need to use my fork of
-test-kitchen, metal-support branch -- doubt72].
+test-kitchen, metal-support branch. Also cheffish, but hopefully that will be PR'd, reviewed, and merged into master soon -- doubt72].
 
 ## Setting Up Kitchen-Metal
 
@@ -87,11 +87,9 @@ always been, i.e., under the same path:
 
     <kitchen_root>/test/integration
 
-
 However, the way they're organized is slightly different.  Tests can still be put in the suite-level path:
 
     <kitchen_root>/test/integration/<suite_name>
-
 
 ...But these tests will be run on the host system (as observer tests) if they exist.
 They are still run with busser, but it currently requires you to manually install
@@ -106,15 +104,6 @@ the .kitchen.yml) install and run on those nodes (i.e., the machines with the sa
 name as the nodes).  Those files go in directories like this:
 
     <kitchen_root>/test/integration/<node_name>/<suite_name>
-
-
-Note that doing things piecemeal will not always work.  Specifically, running
-"kitchen destroy" by itself (i.e., not as part of "kitchen test") currently has
-issues that we haven't really looked into yet.  Running a full suite run (i.e.,
-"kitchen test") does work reliably, and you can run "kitchen verify" by itself
-back-to-back-to-back (though it's a little slow since it re-checks that metal is
-converged), but there may be other issues with other order of operations we haven't
-seen yet.
 
 For other limitations, see "Things That Are Broke" below.
 
@@ -134,22 +123,12 @@ other changes that we can't currently predict.
 
 ## Things That Are Broke
 
-Quite a number of things are currently broken; while the simplest use case works,
-this is a list of things that we intend to fix at some point.
+At this point, there are a couple issues with the driver as it stands; there may be
+other issues we don't actually know about, but then, we don't know about them.
 
-1. Tasks don't always work out of order: for instance, while "kitchen test" works
-fine, simply running "kitchen destroy" won't do anything by itself (because there is
-some sort of configuration issue that converging the metal boxes fixes).
+1. Windows probably won't work with busser as is.  This isn't tested, though.
 
-2. Multiple platforms aren't supported: if multiple platforms are supplied, the
-second one will fail to converge.  We haven't really looked at it yet, though, so
-not sure why yet.  It's on the list of things to fix.
-
-3. Multiple suites aren't supported: seems to be the same issue as above.
-
-4. Windows probably won't work with busser as is.  This isn't tested, though.
-
-5. We haven't gotten busser working locally.  Theoretically it should work, but
+2. We haven't gotten busser working locally.  Theoretically it should work, but
 essentially it's untested.
 
 ## Authors
