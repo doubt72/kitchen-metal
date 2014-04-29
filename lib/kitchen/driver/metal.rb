@@ -30,8 +30,6 @@ require 'chef/resources'
 require 'kitchen/action_handler'
 
 require 'kitchen/metal_helper'
-require 'rspec'
-require 'rspec/core/formatters/documentation_formatter'
 
 module Kitchen
   module Driver
@@ -156,24 +154,9 @@ module Kitchen
       end
 
       # This is used to run tests.  If we have a node name supplied in .kitchen.yml,
-      # we run on that machine, otherwise we run an external rspec suite
+      # we run on that machine, otherwise we attempt to run busser
       def run_tests(state, target)
         if (target.nil?)
-          # We don't have a node (i.e., no target) so run the external tests
-
-          # Add machine objects for easy reference in rspec;
-          # These are accessed by MetalHelper.<machine name> and have the following
-          # methods:
-          #   name        : machine/node name
-          #   hostname    : machine hostname
-          #   fqdn        : fully qualified domain name
-          #   ipaddress   : IP address
-          #   ipv6address : IPV6 address
-          nodes = get_all_nodes(state)
-          nodes.each do |node|
-            Kitchen::MetalHelper.add_machine(node)
-          end
-
           # This only works if you have busser installed and the appropriate
           # plugins, otherwise this won't do anything.  For the record, I
           # still haven't gotten busser working locally
