@@ -29,8 +29,6 @@ require 'chef/resources'
 
 require 'kitchen/action_handler'
 
-require 'kitchen/metal_helper'
-
 module Kitchen
   module Driver
 
