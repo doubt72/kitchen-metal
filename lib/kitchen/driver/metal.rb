@@ -57,7 +57,7 @@ module Kitchen
 
       def setup(state)
         run_recipe(state)
-        targets = instance.provisioner.config[:nodes]
+        targets = instance.nodes
         if (targets)
           # If there's no target, there's no point in running setup, since we don't
           # have a machine we need to prep for anything; we'll be running tests
@@ -72,7 +72,7 @@ module Kitchen
       def verify(state)
         run_recipe(state)
         run_tests(state, nil)
-        targets = instance.provisioner.config[:nodes]
+        targets = instance.nodes
         if (targets)
           targets.each do |target|
             run_tests(state, target)
@@ -89,29 +89,14 @@ module Kitchen
 
       protected
 
-      # This is used to get a node with a specific name
-      def get_node(state, name)
-        machines = state[:machines]
-        if (machines.include?(name))
-          chef_server = Cheffish::CheffishServerAPI.new(Cheffish.enclosing_chef_server)
-          nodes = chef_server.get("/nodes")
-          node_url = nodes[name]
-          chef_server.get(node_url)
-        else
-          nil
-        end
-      end
-
       # This is used to get all our machine nodes
       def get_all_nodes(state)
         rc = []
         machines = state[:machines]
-        chef_server = Cheffish::CheffishServerAPI.new(Cheffish.enclosing_chef_server)
-        nodes = chef_server.get("/nodes")
-        nodes.each_key do |key|
-          if (machines.include?(key))
-            node_url = nodes[key]
-            node = chef_server.get(node_url)
+        chef_rest = Chef::REST.new(@server.url)
+        nodes = chef_rest.get("/nodes")
+        nodes.each_key do |node|
+          if (machines.include?(node))
             rc.push(node)
           end
         end
@@ -134,21 +119,19 @@ module Kitchen
       def run_setup(state, target)
         # Go get our machine/transport to our machine
         machines = state[:machines]
-        raise ClientError, "No machine with name #{target} exists, cannot setup test " +
-          "suite as specified by .kitchen.yml" if !machines.include?(target)
-        node = get_node(state, target)
-        provisioner = ChefMetal.provisioner_for_node(node)
-        machine = provisioner.connect_to_machine(node)
+        raise ClientError, "No machine with name #{target.name} exists, cannot setup " +
+          "test suite as specified by .kitchen.yml" if !machines.include?(target.name)
+        spec = ChefMetal::ChefMachineSpec.get(target.name,
+          { :chef_server_url => @server.url })
+        driver = ChefMetal.driver_for_url(spec.location['driver_url'])
+        options = { :convergence_options => { :chef_server => {
+              :chef_server_url => @server.url } } }
+        machine = driver.connect_to_machine(spec, options)
         transport = machine.transport
 
         # Get the instance busser/setup and run our test setup on our machine
-        busser = instance.busser
-        old_path = busser[:test_base_path]
-        busser[:test_base_path] = "#{busser[:test_base_path]}/#{target}"
+        busser = target.busser
         execute(transport, busser.setup_cmd)
-        # We have to reset this after we modify it for the node; otherwise this is
-        # a persistent change
-        busser[:test_base_path] = old_path
       end
 
       # This is used to run tests.  If we have a node name supplied in .kitchen.yml,
@@ -166,22 +149,20 @@ module Kitchen
           # We do have a node (i.e., a target) so we run on that host, so let's go
           # get our machine/transport to our machine
           machines = state[:machines]
-          raise ClientError, "No machine with name #{target} exists, cannot run test " +
-            "suite as specified by .kitchen.yml" if !machines.include?(target)
-          node = get_node(state, target)
-          provisioner = ChefMetal.provisioner_for_node(node)
-          machine = provisioner.connect_to_machine(node)
+          raise ClientError, "No machine with name #{target.name} exists, cannot run " +
+            "test suite as specified by .kitchen.yml" if !machines.include?(target.name)
+          spec = ChefMetal::ChefMachineSpec.get(target.name,
+            { :chef_server_url => @server.url })
+          driver = ChefMetal.driver_for_url(spec.location['driver_url'])
+          options = { :convergence_options => { :chef_server => {
+                :chef_server_url => @server.url } } }
+          machine = driver.connect_to_machine(spec, options)
           transport = machine.transport
 
           # Get the instance busser/setup and run our tests on our machine
-          busser = instance.busser
-          old_path = busser[:test_base_path]
-          busser[:test_base_path] = "#{busser[:test_base_path]}/#{target}"
+          busser = target.busser
           execute(transport, busser.sync_cmd)
           execute(transport, busser.run_cmd)
-          # We have to reset this after we modify it for the node; otherwise this is
-          # a persistent change
-          busser[:test_base_path] = old_path
         end
       end
 
@@ -191,7 +172,7 @@ module Kitchen
       def get_driver_recipe
         # TODO: we may want to move the path from the top level
         return nil if config[:layout].nil?
-        path = "#{config[:kitchen_root]}/#{config[:layout]}"
+        path = "#{config[:kitchen_root]}/recipes/#{config[:layout]}.rb"
         file = File.open(path, "rb")
         contents = file.read
         file.close
@@ -203,7 +184,7 @@ module Kitchen
       # etc. but you can ultimately use it however you like
       def get_platform_recipe
         # TODO: we may want to move the path from the top level
-        path = "#{config[:kitchen_root]}/#{instance.platform.name}"
+        path = "#{config[:kitchen_root]}/recipes/#{instance.platform.name}.rb"
         file = File.open(path, "rb")
         contents = file.read
         file.close
@@ -216,37 +197,53 @@ module Kitchen
       # it can query the server metal sets up to retrieve the information necessary
       # for destroying an VMs already created.
       def set_up_server
-        node = Chef::Node.new
-        node.name 'nothing'
-        node.automatic[:platform] = 'kitchen_metal'
-        node.automatic[:platform_version] = 'kitchen_metal'
+
+        path = "#{config[:kitchen_root]}/chef-local"
         Chef::Config.local_mode = true
-        run_context = Chef::RunContext.new(node, {},
-          Chef::EventDispatch::Dispatcher.new(Chef::Formatters::Doc.new(STDOUT,STDERR)))
-        recipe_exec = Chef::Recipe.new('kitchen_vagrant_metal',
-          'kitchen_vagrant_metal', run_context)
+        options = {
+          :chef_repo_path => path,
+          :host => '127.0.0.1',
+          :log_level => Chef::Log.level,
+          :port => 8901
+        }
+        %w(acl client cookbook container data_bag environment group node role).each do |type|
+          options["#{type}_path".to_sym] = "#{options[:chef_repo_path]}/#{type}s"
+          options["#{type}_path"] = "#{options[:chef_repo_path]}/#{type}s"
+        end
+
+        chef_fs = Chef::ChefFS::Config.new(options).local_fs
+        chef_fs.write_pretty_json = true
+        options[:data_store] = Chef::ChefFS::ChefFSDataStore.new(chef_fs)
+
+        @server = ChefZero::Server.new(options)
+        @server.start_background
+
+        Chef::Config.chef_server_url = @server.url
+        formatter = Chef::Formatters::Doc.new(STDOUT, STDERR)
+        client = Cheffish::BasicChefClient.new(nil, formatter)
 
         # We require a platform, but layout in driver is optional
-        recipe_exec.instance_eval get_platform_recipe
-        recipe = get_driver_recipe
-        recipe_exec.instance_eval recipe if recipe
-        return run_context
+        recipe = get_platform_recipe
+        driver_recipe = get_driver_recipe
+        recipe += driver_recipe if driver_recipe
+        client.load_block { instance_eval(recipe) }
+        return client
       end
 
       # This is used to set up our server, and converge it if not already converged
       def run_recipe(state)
-        run_context = set_up_server
+        client = set_up_server
 
         # Don't run this again if we've already converged it
         return if @environment_created
 
-        Chef::Runner.new(run_context).converge
+        client.converge
 
         # Grab the machines so we can save them for later (i.e., for login/to destroy
         # them/etc.)  We have to be careful of duplicate nodes with the same name and
         # that we're actually getting machine resource names
         machines = []
-        run_context.resource_collection.each do |resource|
+        client.resource_collection.each do |resource|
           if (resource.is_a?(Chef::Resource::Machine))
             if (!machines.include?(resource.name))
               machines.push(resource.name)
@@ -265,15 +262,20 @@ module Kitchen
         set_up_server
         nodes = get_all_nodes(state)
         nodes.each do |node|
-          provisioner = ChefMetal.provisioner_for_node(node)
-          provisioner.delete_machine(Kitchen::ActionHandler.new("test_kitchen"), node)
+          spec = ChefMetal::ChefMachineSpec.get(node, { :chef_server_url => @server.url })
+          driver = ChefMetal.driver_for_url(spec.location['driver_url'])
+          options = { :convergence_options => { :chef_server => {
+                :chef_server_url => @server.url } } }
+          driver.destroy_machine(Kitchen::ActionHandler.new("test_kitchen"),
+            spec, options)
         end
         state[:machines] = []
         @environment_created = false
       end
 
       def clear_server
-        Chef::Recipe.stop_local_servers
+        @server.stop if @server
+        @server = nil
       end
 
 #      def build_ssh_args(state)
