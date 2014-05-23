@@ -20,9 +20,8 @@ here:
     gem install ./kitchen-metal-<version>.dev.gem
 
 The gem requires the test-kitchen and chef-metal gems to run.  Note, however, that
-you may need forks or branches of those gems to get the driver working properly [as
-of this writing, chef-metal master should be fine, but you'll need to use my fork of
-test-kitchen, metal-support branch. Also cheffish, but hopefully that will be PR'd, reviewed, and merged into master soon -- doubt72].
+currently this needs the dt/metal-support branch on the [doubt72 fork of
+test-kitchen](https://github.com/doubt72/test-kitchen) to run properly.
 
 ## Setting Up Kitchen-Metal
 
@@ -41,49 +40,60 @@ for more information on chef-metal recipes).
 
     driver:
       name: metal
-      layout: layout.rb
+      layout: layout
 
-Right now, the layout recipe is found in the kitchen root directory (i.e., the same
-directory that contains the .kitchen.yml file).  In the future, it's likely this may
-change.
+The layout file (actually called layout.rb in this case) should be put in the
+recipes directory of the kitchen project you are working on.
 
-The second major difference is that when using the kitchen-metal driver, it requires
-the use of the chef_metal provisioner.  This is not a true provisioner (metal
-handles all of its own provisioning and specifications for its own provisioning),
-but is required so that the metal driver can access various configuration parameters.
-
-    provisioner:
-      name: chef_metal
-
-This provisioner is currently only available in a fork/branch of Test Kitchen at the
-moment I write this.  This may or may not go away as we test kitchen gets refactored
-to better integrate with Chef Metal; like this driver, this is fairly expirimental.
+The second major difference is that when using the kitchen-metal driver, no
+provisioner is required (metal does its own provisioning) and in fact that parameter
+is simply ignored, so you can leave it out completely.
 
 The next major difference is that the platform name has been replaced with another
 metal recipe.  This recipe is essentially combined with the layout recipe.  This
 recipe is intended to be used to specify the platform parameters, but like the
 layout recipe, it can be any valid metal recipe.  Again, this recipe is found in the
-kitchen root; again this may (probably will) change in the future.
+recipes directory of your project (and should be a ruby file, and have ".rb"
+appended to the name).
 
     platforms:
-      - name: platform.rb
+      - name: platform
 
 The final major difference is the addition of the "nodes" parameter in the suite.
 This specifies all of the nodes to run tests on (tests will also be run on the host
 running test kitchen if they exist and busser is configured correctly).  See
 "Running Tests" below for more about this.
 
-    suites:
+    nodes:
       - name: default
-        nodes: [spyder, fly]
 
 This configuration will also likely change in the future; see "Possible Future
 Changes" below.
 
+Here is an example of a simple (but fully functional) .kitchen.yml file (assuming
+you have a layout.rb, platform.rb and platform2.rb file in your recipes dir):
+
+    ---
+    driver:
+      name: metal
+      layout: layout
+
+    platforms:
+      - name: platform
+      - name: platform2
+
+    suites:
+      - name: default
+        attributes:
+
+    nodes:
+      - name: spyder
+      - name: fly
+
 ##  Running Tests
 
-The tests for the kitchen-metal driver are more or less in the same place as they've
-always been, i.e., under the same path:
+By default, the tests for the kitchen-metal driver are more or less in the same
+place as they've always been, i.e., under the same path:
 
     <kitchen_root>/test/integration
 
@@ -101,25 +111,19 @@ on it).
 
 Tests for each of the nodes (as specified by the "nodes" parameter in the suite in
 the .kitchen.yml) install and run on those nodes (i.e., the machines with the same
-name as the nodes).  Those files go in directories like this:
+name as the nodes).  By default, those files go in directories like this:
 
     <kitchen_root>/test/integration/<node_name>/<suite_name>
 
-For other limitations, see "Things That Are Broke" below.
+However, just as you can specify the test path in the suites, you can also use
+whatever path you like for each node; this way nodes could even share test paths if
+that made sense for whatever reason.
 
 ## Probable Future Changes
 
 This cannot be emphasised enough: this is an experimental driver.  It will change.
-It's configuration and setup will change.  Probably radically.
-
-Specifically, a better method of specifying nodes will probably exist at some point.
-That will allow a more configurable way of specifying test paths (since right now,
-the suite name cannot match any of the node names, nor can multiple nodes share the
-same tests without hacking your own soft links and such).  As we work on integrating
-metal and test kitchen, there will no doubt be some other changes as well.  We might
-remove the .rb from platforms and add it during runtime.  We might move the layout
-and platform recipes somewhere other than kitchen root.  And likely there will be
-other changes that we can't currently predict.
+It may even go away completely and/or be absorved into test-kitchen itself in a more
+general way.  At this point, it's not certain what those changes may look like, though.
 
 ## Things That Are Broke
 
